@@ -9,7 +9,6 @@ set(DPT_NATIVE_SOURCE
         dpt_util.cpp
         dpt_risk.cpp
         dpt_crypto.cpp
-        rc4/rc4.c
         common/dpt_string.c
         dex/dex_file.cpp
         dex/MultiDexCode.cpp

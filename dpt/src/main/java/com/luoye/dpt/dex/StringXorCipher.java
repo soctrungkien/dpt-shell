@@ -19,7 +19,7 @@ public final class StringXorCipher {
     public static String encrypt(String plain, int key) {
         char[] chars = plain.toCharArray();
         for (int i = 0; i < chars.length; i++) {
-            chars[i] = (char) (chars[i] ^ key);
+            chars[i] = (char) (chars[i] ^ key ^ i);
         }
         return new String(chars);
     }

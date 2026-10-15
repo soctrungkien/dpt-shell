@@ -14,6 +14,7 @@ import com.luoye.dpt.model.MultiDexCode;
 import com.luoye.dpt.task.ThreadPool;
 import com.luoye.dpt.util.CryptoUtils;
 import com.luoye.dpt.util.DexUtils;
+import com.luoye.dpt.util.DptCipher;
 import com.luoye.dpt.util.FileUtils;
 import com.luoye.dpt.util.HexUtils;
 import com.luoye.dpt.util.IoUtils;
@@ -287,6 +288,10 @@ public abstract class AndroidPackage {
      * Combine the compressed dex file with the shell dex to create a new dex file.
      */
     protected void combineDexZipWithShellDex(String packageMainProcessPath) {
+        combineDexZipWithShellDex(packageMainProcessPath, null);
+    }
+
+    protected void combineDexZipWithShellDex(String packageMainProcessPath, byte[] encKey) {
         try {
             File shellDexFile = new File(getProxyDexPath());
             File renameDexFile = new File(getRenameDexPath());
@@ -303,16 +308,21 @@ public abstract class AndroidPackage {
             File originalDexZipFile = new File(getOutAssetsDir(packageMainProcessPath).getAbsolutePath() + File.separator + Const.KEY_DEXES_STORE_NAME);
             byte[] zipData = com.android.dex.util.FileUtils.readFile(originalDexZipFile);// Read the zip file as binary data
             byte[] unShellDexArray =  com.android.dex.util.FileUtils.readFile(!needRename ? shellDexFile : renameDexFile); // Read the dex file as binary data
+
+            if (encKey != null && encKey.length > 0) {
+                zipData = DptCipher.crypt(encKey, DptCipher.TWEAK_DEX_ZIP, zipData);
+            }
+
             int zipDataLen = zipData.length;
             int unShellDexLen = unShellDexArray.length;
-            LogUtils.info("Dexes zip file size: %s", zipDataLen);
+            LogUtils.info("Dexes zip file size: %s (encrypted=%s)", zipDataLen, (encKey != null));
             LogUtils.info("Proxy dex file size: %s", unShellDexLen);
             int totalLen = zipDataLen + unShellDexLen + 4;// An additional 4 bytes are added to store the length
             byte[] newDexBytes = new byte[totalLen]; // Allocate the new length
 
             // Add the shell code
             System.arraycopy(unShellDexArray, 0, newDexBytes, 0, unShellDexLen);// First, copy the dex content
-            // Add the unencrypted zip data
+            // Add the zip data
             System.arraycopy(zipData, 0, newDexBytes, unShellDexLen, zipDataLen); // Then copy the APK content after the dex content
             // Add the length of the shell data
             System.arraycopy(FileUtils.intToByte(zipDataLen), 0, newDexBytes, totalLen - 4, 4);// The last 4 bytes are for the length
@@ -600,7 +610,7 @@ public abstract class AndroidPackage {
                             (int)sectionHeader.getSize()
                     );
 
-                    byte[] enc = CryptoUtils.rc4Crypt(rc4Key, bitcode);
+                    byte[] enc = DptCipher.crypt(rc4Key, DptCipher.TWEAK_BITCODE, bitcode);
                     IoUtils.writeFile(soFile.getAbsolutePath(),enc,sectionHeader.getOffset());
                 }
             }
@@ -627,7 +637,8 @@ public abstract class AndroidPackage {
             long symbolDataOffset = sectionHeader.getOffset() + value - sectionHeader.getAddr();
             LogUtils.info("write symbol data to %s(%s)", soFile.getName(), HexUtils.toHexString(symbolDataOffset));
 
-            IoUtils.writeFile(soFile.getAbsolutePath(),rc4key,symbolDataOffset);
+            byte[] maskedKey = KeyUtils.maskKey(rc4key);
+            IoUtils.writeFile(soFile.getAbsolutePath(),maskedKey,symbolDataOffset);
         }
         catch (Exception e) {
             e.printStackTrace();

@@ -57,6 +57,7 @@ public final class DexStringDecryptBuilder {
 
         impl.addInstruction(new BuilderInstruction23x(Opcode.AGET_CHAR, tmpReg, arrReg, idxReg));
         impl.addInstruction(new BuilderInstruction23x(Opcode.XOR_INT, tmpReg, tmpReg, keyReg));
+        impl.addInstruction(new BuilderInstruction23x(Opcode.XOR_INT, tmpReg, tmpReg, idxReg));
         impl.addInstruction(new BuilderInstruction12x(Opcode.INT_TO_CHAR, tmpReg, tmpReg));
         impl.addInstruction(new BuilderInstruction23x(Opcode.APUT_CHAR, tmpReg, arrReg, idxReg));
         impl.addInstruction(new BuilderInstruction22b(Opcode.ADD_INT_LIT8, idxReg, idxReg, 1));

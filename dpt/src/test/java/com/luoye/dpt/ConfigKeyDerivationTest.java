@@ -1,6 +1,7 @@
 package com.luoye.dpt;
 
 import com.luoye.dpt.util.CryptoUtils;
+import com.luoye.dpt.util.DptCipher;
 import com.luoye.dpt.util.KeyUtils;
 
 import org.junit.Assert;
@@ -92,6 +93,65 @@ public class ConfigKeyDerivationTest {
     @Test(expected = IllegalArgumentException.class)
     public void testBuildInsnsRc4KeyRejectsEmptyAesKey() {
         CryptoUtils.buildInsnsRc4Key(new byte[0], 1);
+    }
+
+    @Test
+    public void testDptCipherSymmetricRoundTrip() {
+        byte[] key = new byte[32];
+        for (int i = 0; i < key.length; i++) {
+            key[i] = (byte) (0xA0 + i);
+        }
+        long tweak = DptCipher.buildInsnsTweak(105, 48);
+        byte[] original = "Testing DptCipher ARX-Feistel Stream Cipher Bytecode".getBytes(StandardCharsets.UTF_8);
+
+        byte[] encrypted = DptCipher.crypt(key, tweak, original);
+        Assert.assertNotNull(encrypted);
+        Assert.assertEquals(original.length, encrypted.length);
+        Assert.assertFalse(Arrays.equals(original, encrypted));
+
+        byte[] decrypted = DptCipher.crypt(key, tweak, encrypted);
+        Assert.assertArrayEquals(original, decrypted);
+    }
+
+    @Test
+    public void testDptCipherDifferentTweaksProduceDifferentCiphertext() {
+        byte[] key = new byte[32];
+        Arrays.fill(key, (byte) 0x55);
+        byte[] plain = new byte[64];
+        Arrays.fill(plain, (byte) 0x11);
+
+        long tweak1 = DptCipher.buildInsnsTweak(1, 32);
+        long tweak2 = DptCipher.buildInsnsTweak(2, 32);
+
+        byte[] enc1 = DptCipher.crypt(key, tweak1, plain);
+        byte[] enc2 = DptCipher.crypt(key, tweak2, plain);
+
+        Assert.assertFalse(Arrays.equals(enc1, enc2));
+    }
+
+    @Test
+    public void testKeyMaskingRoundTrip() {
+        byte[] rawKey = KeyUtils.generateKey();
+        byte[] masked = KeyUtils.maskKey(rawKey);
+
+        Assert.assertNotNull(masked);
+        Assert.assertEquals(rawKey.length, masked.length);
+        Assert.assertFalse(Arrays.equals(rawKey, masked));
+
+        byte[] unmasked = KeyUtils.unmaskKey(masked);
+        Assert.assertArrayEquals(rawKey, unmasked);
+    }
+
+    @Test
+    public void testStringXorCipherIndexDependent() {
+        String original = "com.luoyesiqiu.shell.JniBridge";
+        int key = 0x7E;
+        String enc = com.luoye.dpt.dex.StringXorCipher.encrypt(original, key);
+        Assert.assertNotEquals(original, enc);
+
+        // Self-inverting because (c ^ key ^ i) ^ key ^ i == c
+        String dec = com.luoye.dpt.dex.StringXorCipher.encrypt(enc, key);
+        Assert.assertEquals(original, dec);
     }
 
     private static byte[] hexToBytes(String hex) {

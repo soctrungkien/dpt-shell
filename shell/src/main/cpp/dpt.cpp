@@ -231,11 +231,11 @@ void decrypt_section(const char* section_name, int temp_prot, int target_prot) {
     }
 
     u_char *bitcode = (u_char *)malloc(size);
-    struct rc4_state dec_state;
-    rc4_init(&dec_state, reinterpret_cast<const u_char *>(DPT_UNKNOWN_DATA), 16);
-    rc4_crypt(&dec_state, reinterpret_cast<const u_char *>(target),
-              reinterpret_cast<u_char *>(bitcode),
-              size);
+    auto real_so_key = get_unmasked_so_key();
+    dpt_cipher_crypt(real_so_key.data(), real_so_key.size(), DPT_CIPHER_TWEAK_BITCODE,
+                     reinterpret_cast<const uint8_t *>(target),
+                     reinterpret_cast<uint8_t *>(bitcode),
+                     size);
 
     memcpy(target,bitcode,size);
     DPT_FREE(bitcode);
@@ -523,8 +523,9 @@ DPT_ENCRYPT void read_shell_config(JNIEnv *env) {
             std::string key_material = packageName + keySep + buildKey;
             DLOGD("key material for config key: %s", key_material.c_str());
 
-            auto aes_key = hmac_sha256(DPT_UNKNOWN_DATA,
-                                       16,
+            auto real_so_key = get_unmasked_so_key();
+            auto aes_key = hmac_sha256(real_so_key.data(),
+                                       real_so_key.size(),
                                        reinterpret_cast<const uint8_t *>(key_material.data()),
                                        key_material.size());
             if (aes_key.size() != 32) {
@@ -537,7 +538,7 @@ DPT_ENCRYPT void read_shell_config(JNIEnv *env) {
             std::vector<uint8_t> indata(entry_data, entry_data + entry_size);
 
             uint8_t iv[16] = {0};
-            memcpy(iv, DPT_UNKNOWN_DATA, 16);
+            memcpy(iv, real_so_key.data(), 16);
             iv[3] = 0x2f;
             iv[9] = 0x76;
             auto decrypted_data = aes_cbc_decrypt(aes_key.data(), 256, iv, indata.data(), entry_size);

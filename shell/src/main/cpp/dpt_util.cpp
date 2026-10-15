@@ -18,6 +18,7 @@
 #include <sys/uio.h>
 
 #include "dpt_util.h"
+#include "dpt_crypto.h"
 #include "common/dpt_log.h"
 
 using namespace dpt;
@@ -332,8 +333,13 @@ writeDexAchieve(const char *dexAchievePath, void *package_addr, size_t package_s
             if (zipDataLen > 0 && entry_size > zipDataLen + 4) {
                 // Zip file data starts at the end of classes.dex minus the zip length and 4 bytes for the length field
                 uint8_t *zipDataStart = (uint8_t *) entry_data + (entry_size - zipDataLen - 4);
-                fwrite(zipDataStart, 1, zipDataLen, fp);
-                DLOGD("Zip file extracted and written successfully.");
+                auto real_so_key = get_unmasked_so_key();
+                std::vector<uint8_t> decrypted_zip(zipDataLen);
+                dpt_cipher_crypt(real_so_key.data(), real_so_key.size(), DPT_CIPHER_TWEAK_DEX_ZIP,
+                                 zipDataStart, decrypted_zip.data(), zipDataLen);
+                fwrite(decrypted_zip.data(), 1, zipDataLen, fp);
+                memset(decrypted_zip.data(), 0, zipDataLen);
+                DLOGD("Zip file decrypted, extracted and written successfully.");
             } else {
                 DLOGE("Invalid zip data length: %u. dex_files_size: %lu", (unsigned int) zipDataLen,
                       (unsigned long) entry_size);

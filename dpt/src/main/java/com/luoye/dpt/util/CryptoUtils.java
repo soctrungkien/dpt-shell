@@ -77,4 +77,12 @@ public class CryptoUtils {
         }
         return null;
     }
+
+    public static byte[] dptCipherCrypt(byte[] key, long tweak, byte[] in) {
+        return DptCipher.crypt(key, tweak, in);
+    }
+
+    public static void dptCipherCrypt(byte[] key, long tweak, byte[] in, int inOff, byte[] out, int outOff, int len) {
+        DptCipher.crypt(key, tweak, in, inOff, out, outOff, len);
+    }
 }

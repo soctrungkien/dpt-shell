@@ -25,7 +25,7 @@
 #include "common/dpt_log.h"
 #include "common/dpt_macro.h"
 #include "common/obfuscate.h"
-#include "rc4/rc4.h"
+#include "dpt_crypto.h"
 #include "dpt_hook.h"
 #include "dex/MultiDexCode.h"
 #include "dex/CodeItem.h"

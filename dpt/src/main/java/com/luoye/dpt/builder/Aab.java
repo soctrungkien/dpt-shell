@@ -215,7 +215,7 @@ public class Aab extends AndroidPackage {
         aab.extractDexCode(aabMainProcessPath, assetsPath, encKey);
         aab.compressDexFiles(aabMainProcessPath);
         aab.deleteAllDexFiles(aabMainProcessPath);
-        aab.combineDexZipWithShellDex(aabMainProcessPath);
+        aab.combineDexZipWithShellDex(aabMainProcessPath, encKey);
         aab.addKeepDexes(aabMainProcessPath);
         File keepDexTempDir = aab.getKeepDexTempDir(aabMainProcessPath);
         FileUtils.deleteRecurse(keepDexTempDir);

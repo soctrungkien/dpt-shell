@@ -415,10 +415,10 @@ public class DexUtils {
         }
 
         byte[] aesKey = ShellConfig.getInstance().getInsnsCryptKey();
-        byte[] rc4Key = CryptoUtils.buildInsnsRc4Key(aesKey, method.getMethodIndex());
-        byte[] encrypted = CryptoUtils.rc4Crypt(rc4Key, byteCode);
+        long tweak = DptCipher.buildInsnsTweak(method.getMethodIndex(), insnsCapacity * 2);
+        byte[] encrypted = DptCipher.crypt(aesKey, tweak, byteCode);
         if (encrypted == null || encrypted.length != byteCode.length) {
-            throw new IllegalStateException("rc4 encrypt insns failed");
+            throw new IllegalStateException("encrypt insns failed");
         }
         instruction.setInstructionsData(encrypted);
         outRandomAccessFile.seek(insnsOffset);
