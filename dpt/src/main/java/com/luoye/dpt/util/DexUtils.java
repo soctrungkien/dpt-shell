@@ -18,6 +18,7 @@ import com.android.tools.smali.dexlib2.rewriter.Rewriter;
 import com.android.tools.smali.dexlib2.rewriter.RewriterModule;
 import com.android.tools.smali.dexlib2.rewriter.Rewriters;
 import com.android.tools.smali.dexlib2.rewriter.TypeRewriter;
+import com.luoye.dpt.config.Const;
 import com.luoye.dpt.config.ProtectRules;
 import com.luoye.dpt.config.ShellConfig;
 import com.luoye.dpt.dex.ReflectionClinitInjector;
@@ -189,19 +190,42 @@ public class DexUtils {
     }
 
     public static void renamePackageName(File dexFilePath, File newDexFilePath, String slashShellPackageName) throws IOException {
+        renamePackageName(dexFilePath, newDexFilePath, slashShellPackageName,
+                ShellConfig.getInstance().getJniClassName());
+    }
+
+    public static void renamePackageName(File dexFilePath, File newDexFilePath,
+                                         String slashShellPackageName,
+                                         String jniClassName) throws IOException {
 
         DexBackedDexFile dexBackedDexFile = DexFileFactory.loadDexFile(dexFilePath, Opcodes.getDefault());
 
-        LogUtils.debug("Rename shell package name to: " + slashShellPackageName);
+        final String targetJniClassName = (jniClassName == null || jniClassName.isEmpty())
+                ? ShellConfig.getInstance().getJniClassName()
+                : jniClassName;
+
+        LogUtils.debug("Rename shell package name to: %s, jni class: %s",
+                slashShellPackageName, targetJniClassName);
         DexRewriter dexMethodRewriter = new DexRewriter(new RewriterModule() {
             @Override
             public Rewriter<String> getTypeRewriter(Rewriters rewriters) {
                 return new TypeRewriter() {
                     @Override
                     public String rewrite(String value) {
+                        if (value == null || value.length() < 3
+                                || value.charAt(0) != 'L'
+                                || value.charAt(value.length() - 1) != ';') {
+                            return value;
+                        }
                         int index = value.lastIndexOf("/");
+                        if (index < 0) {
+                            return value;
+                        }
                         String className = value.substring(index + 1, value.length() - 1);
                         if(value.startsWith("Lcom/luoyesiqiu") || value.startsWith("Lcom/luoye")) {
+                            if (Const.SHELL_JNI_TEMPLATE_CLASS_NAME.equals(className)) {
+                                className = targetJniClassName;
+                            }
                             return String.format(Locale.US, "L%s/%s;", slashShellPackageName, className);
                         }
                         return value;
@@ -415,10 +439,10 @@ public class DexUtils {
         }
 
         byte[] aesKey = ShellConfig.getInstance().getInsnsCryptKey();
-        byte[] rc4Key = CryptoUtils.buildInsnsRc4Key(aesKey, method.getMethodIndex());
-        byte[] encrypted = CryptoUtils.rc4Crypt(rc4Key, byteCode);
+        long tweak = DptCipher.buildInsnsTweak(method.getMethodIndex(), insnsCapacity * 2);
+        byte[] encrypted = DptCipher.crypt(aesKey, tweak, byteCode);
         if (encrypted == null || encrypted.length != byteCode.length) {
-            throw new IllegalStateException("rc4 encrypt insns failed");
+            throw new IllegalStateException("encrypt insns failed");
         }
         instruction.setInstructionsData(encrypted);
         outRandomAccessFile.seek(insnsOffset);

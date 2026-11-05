@@ -9,7 +9,6 @@ set(DPT_NATIVE_SOURCE
         dpt_util.cpp
         dpt_risk.cpp
         dpt_crypto.cpp
-        rc4/rc4.c
         common/dpt_string.c
         dex/dex_file.cpp
         dex/MultiDexCode.cpp
@@ -86,9 +85,21 @@ if(NOT DEFINED DPT_BUILD_KEY OR DPT_BUILD_KEY STREQUAL "")
 endif()
 message("dpt build key: ${DPT_BUILD_KEY}")
 
-add_compile_definitions(JNI_BRIDGE_NAME="${JNI_BRIDGE_NAME}")
+if(NOT DEFINED SHELL_CONFIG_ASSET_NAME OR SHELL_CONFIG_ASSET_NAME STREQUAL "")
+    message(FATAL_ERROR "SHELL_CONFIG_ASSET_NAME is required")
+endif()
+if(NOT DEFINED DEXES_ZIP_NAME OR DEXES_ZIP_NAME STREQUAL "")
+    message(FATAL_ERROR "DEXES_ZIP_NAME is required")
+endif()
+if(NOT DEFINED CODE_ITEM_ASSET_NAME OR CODE_ITEM_ASSET_NAME STREQUAL "")
+    message(FATAL_ERROR "CODE_ITEM_ASSET_NAME is required")
+endif()
+
 add_compile_definitions(SO_NAME="lib${SO_NAME}.so")
 add_compile_definitions(DPT_BUILD_KEY="${DPT_BUILD_KEY}")
+add_compile_definitions(SHELL_CONFIG_IN_ZIP="assets/${SHELL_CONFIG_ASSET_NAME}")
+add_compile_definitions(CODE_ITEM_NAME_IN_ZIP="assets/${CODE_ITEM_ASSET_NAME}")
+add_compile_definitions(DEXES_ZIP_NAME="${DEXES_ZIP_NAME}")
 
 include_directories(./ )
 include_directories(./common)

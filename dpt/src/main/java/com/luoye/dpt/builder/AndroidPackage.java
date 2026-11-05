@@ -15,6 +15,7 @@ import com.luoye.dpt.task.ThreadPool;
 import com.luoye.dpt.util.CryptoUtils;
 import com.luoye.dpt.util.DexUtils;
 import com.luoye.dpt.util.DexVersionUtils;
+import com.luoye.dpt.util.DptCipher;
 import com.luoye.dpt.util.FileUtils;
 import com.luoye.dpt.util.HexUtils;
 import com.luoye.dpt.util.IoUtils;
@@ -287,7 +288,7 @@ public abstract class AndroidPackage {
     /**
      * Combine the compressed dex file with the shell dex to create a new dex file.
      */
-    protected void combineDexZipWithShellDex(String packageMainProcessPath) {
+    protected void combineDexZipWithShellDex(String packageMainProcessPath, byte[] encKey) {
         try {
             File shellDexFile = new File(getProxyDexPath());
             File renameDexFile = new File(getRenameDexPath());
@@ -295,25 +296,33 @@ public abstract class AndroidPackage {
             ShellConfig shellConfig = ShellConfig.getInstance();
 
             boolean needRename = !org.apache.commons.lang3.StringUtils.isBlank(shellConfig.getShellPackageName())
-                    && !Const.DEFAULT_SHELL_PACKAGE_NAME.equals(shellConfig.getShellPackageName());
+                    && !Const.SHELL_PACKAGE_NAME_AUTO.equals(shellConfig.getShellPackageName());
 
             if(needRename) {
-                DexUtils.renamePackageName(shellDexFile, renameDexFile, shellConfig.getSlashShellPackageName());
+                DexUtils.renamePackageName(shellDexFile, renameDexFile,
+                        shellConfig.getSlashShellPackageName(),
+                        shellConfig.getJniClassName());
             }
 
             File originalDexZipFile = new File(getOutAssetsDir(packageMainProcessPath).getAbsolutePath() + File.separator + Const.KEY_DEXES_STORE_NAME);
             byte[] zipData = com.android.dex.util.FileUtils.readFile(originalDexZipFile);// Read the zip file as binary data
             byte[] unShellDexArray =  com.android.dex.util.FileUtils.readFile(!needRename ? shellDexFile : renameDexFile); // Read the dex file as binary data
+
+            if (encKey == null || encKey.length == 0) {
+                throw new IllegalStateException("dex zip encryption key is empty");
+            }
+            zipData = DptCipher.crypt(encKey, DptCipher.TWEAK_DEX_ZIP, zipData);
+
             int zipDataLen = zipData.length;
             int unShellDexLen = unShellDexArray.length;
-            LogUtils.info("Dexes zip file size: %s", zipDataLen);
+            LogUtils.info("Dexes zip file size: %s (encrypted)", zipDataLen);
             LogUtils.info("Proxy dex file size: %s", unShellDexLen);
             int totalLen = zipDataLen + unShellDexLen + 4;// An additional 4 bytes are added to store the length
             byte[] newDexBytes = new byte[totalLen]; // Allocate the new length
 
             // Add the shell code
             System.arraycopy(unShellDexArray, 0, newDexBytes, 0, unShellDexLen);// First, copy the dex content
-            // Add the unencrypted zip data
+            // Add the zip data
             System.arraycopy(zipData, 0, newDexBytes, unShellDexLen, zipDataLen); // Then copy the APK content after the dex content
             // Add the length of the shell data
             System.arraycopy(FileUtils.intToByte(zipDataLen), 0, newDexBytes, totalLen - 4, 4);// The last 4 bytes are for the length
@@ -608,7 +617,7 @@ public abstract class AndroidPackage {
                             (int)sectionHeader.getSize()
                     );
 
-                    byte[] enc = CryptoUtils.rc4Crypt(rc4Key, bitcode);
+                    byte[] enc = DptCipher.crypt(rc4Key, DptCipher.TWEAK_BITCODE, bitcode);
                     IoUtils.writeFile(soFile.getAbsolutePath(),enc,sectionHeader.getOffset());
                 }
             }
@@ -635,7 +644,8 @@ public abstract class AndroidPackage {
             long symbolDataOffset = sectionHeader.getOffset() + value - sectionHeader.getAddr();
             LogUtils.info("write symbol data to %s(%s)", soFile.getName(), HexUtils.toHexString(symbolDataOffset));
 
-            IoUtils.writeFile(soFile.getAbsolutePath(),rc4key,symbolDataOffset);
+            byte[] maskedKey = KeyUtils.maskKey(rc4key);
+            IoUtils.writeFile(soFile.getAbsolutePath(),maskedKey,symbolDataOffset);
         }
         catch (Exception e) {
             e.printStackTrace();
@@ -789,7 +799,8 @@ public abstract class AndroidPackage {
         }
         MultiDexCode multiDexCode = MultiDexCodeUtils.makeMultiDexCode(instructionMap);
 
-        MultiDexCodeUtils.writeMultiDexCode(dataOutputPath,multiDexCode);
+        MultiDexCodeUtils.writeEncryptedMultiDexCode(dataOutputPath, multiDexCode,
+                shellConfig.getInsnsCryptKey());
 
     }
     /**
@@ -974,7 +985,7 @@ public abstract class AndroidPackage {
     }
 
     private void processProtectConfigFile() {
-        // Default shell package uses placeholder "<random>", resolved later to "{appPackage}.shell"
+        // Default shell package uses placeholder "<random>", resolved later to "{appPackage}.{random}"
         String autoShellPackageName = Const.SHELL_PACKAGE_NAME_AUTO;
         if(org.apache.commons.lang3.StringUtils.isBlank(getProtectConfigFile())) {
             ShellConfig.getInstance().init(autoShellPackageName);
@@ -1008,25 +1019,29 @@ public abstract class AndroidPackage {
     }
 
     /**
-     * Resolve auto shell package name to "{applicationPackage}.shell" after package name is known.
+     * Resolve the shell package and JNI bridge class to fresh random names after
+     * the application package name is known.
      */
     public void resolveDefaultShellPackageName() {
         ShellConfig shellConfig = ShellConfig.getInstance();
-        if (!Const.SHELL_PACKAGE_NAME_AUTO.equals(shellConfig.getShellPackageName())) {
-            return;
+
+        String currentShellPackage = shellConfig.getShellPackageName();
+        if (org.apache.commons.lang3.StringUtils.isBlank(currentShellPackage)
+                || Const.SHELL_PACKAGE_NAME_AUTO.equals(currentShellPackage)) {
+            String packageName = getPackageName();
+            String shellPackageName;
+            if (org.apache.commons.lang3.StringUtils.isBlank(packageName)) {
+                shellPackageName = StringUtils.generateIdentifier(10);
+                LogUtils.warn("Package name is empty, fallback to random shell package name: %s", shellPackageName);
+            } else {
+                shellPackageName = packageName + "." + StringUtils.generateIdentifier(10);
+            }
+            shellConfig.setShellPackageName(shellPackageName);
+            LogUtils.info("Shell package name: %s", shellPackageName);
         }
 
-        String packageName = getPackageName();
-        if (org.apache.commons.lang3.StringUtils.isBlank(packageName)) {
-            String fallback = StringUtils.generateIdentifier(10);
-            shellConfig.setShellPackageName(fallback);
-            LogUtils.warn("Package name is empty, fallback to random shell package name: %s", fallback);
-            return;
-        }
-
-        String shellPackageName = packageName + ".shell";
-        shellConfig.setShellPackageName(shellPackageName);
-        LogUtils.info("Shell package name: %s", shellPackageName);
+        String jniClassName = shellConfig.getJniClassName();
+        LogUtils.info("JNI class name: %s", jniClassName);
     }
 
     private KeyStore loadKeyStore(InputStream inputStream, char[] password) {
@@ -1083,6 +1098,15 @@ public abstract class AndroidPackage {
             if (keystorePath != null) {
                 try (FileInputStream fis = new FileInputStream(keystorePath)) {
                     ks = loadKeyStore(fis, pwdChars);
+                }
+            }
+            else {
+                // No custom signature config: use the keystore embedded in dpt.jar.
+                try (InputStream is = AndroidPackage.class.getClassLoader()
+                        .getResourceAsStream(Const.KEY_STORE_ASSET_PATH)) {
+                    if (is != null) {
+                        ks = loadKeyStore(is, pwdChars);
+                    }
                 }
             }
 

@@ -42,6 +42,13 @@ public class ShellConfig {
     @JSONField(name = "junk_cls_name")
     private String junkClassName;
 
+    /**
+     * Simple class name of the shell JNI bridge. Generated per protected package;
+     * the prebuilt shell dex is rewritten to use it.
+     */
+    @JSONField(serialize = false)
+    private String jniClassName;
+
     // Same 32-byte key as native read_shell_config aes_key. Not written to JSON.
     @JSONField(serialize = false)
     private byte[] insnsCryptKey;
@@ -119,7 +126,10 @@ public class ShellConfig {
     }
 
     public void init(ShellConfig shellConfig) {
-        this.shellPackageName = StringUtils.isBlank(shellConfig.getShellPackageName()) ? Const.DEFAULT_SHELL_PACKAGE_NAME : shellConfig.getShellPackageName();
+        this.shellPackageName = StringUtils.isBlank(shellConfig.getShellPackageName())
+                ? Const.SHELL_PACKAGE_NAME_AUTO
+                : shellConfig.getShellPackageName();
+        this.jniClassName = shellConfig.jniClassName;
         this.signatureConfig = shellConfig.getSignatureConfig();
         this.appSignSha256 = shellConfig.getAppSignSha256();
         this.riskCheckFlags = shellConfig.getRiskCheckFlags();
@@ -194,10 +204,21 @@ public class ShellConfig {
         this.riskCheckFlags = riskCheckFlags;
     }
 
+    public String getJniClassName() {
+        if (StringUtils.isBlank(jniClassName)) {
+            jniClassName = com.luoye.dpt.util.StringUtils.generateIdentifier(12);
+        }
+        return jniClassName;
+    }
+
+    public void setJniClassName(String jniClassName) {
+        this.jniClassName = jniClassName;
+    }
+
     public String getJniSlashClassName() {
         return String.format(Locale.US, "%s/%s",
                 getSlashShellPackageName(),
-                Const.KEY_JNI_BASE_CLASS_NAME
+                getJniClassName()
         );
     }
 

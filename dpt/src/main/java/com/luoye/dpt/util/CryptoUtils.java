@@ -45,16 +45,26 @@ public class CryptoUtils {
      * Derive AES-256 key by HMAC-SHA256(randomKey, UTF-8(keyMaterial)).
      */
     public static byte[] hmacSha256(byte[] key, String keyMaterial) {
+        if (keyMaterial == null || keyMaterial.isEmpty()) {
+            throw new IllegalArgumentException("key material is empty");
+        }
+        return hmacSha256(key, keyMaterial.getBytes(StandardCharsets.UTF_8));
+    }
+
+    /**
+     * HMAC-SHA256 over raw bytes. Used to derive a per-file subkey from a random nonce.
+     */
+    public static byte[] hmacSha256(byte[] key, byte[] data) {
         if (key == null || key.length == 0) {
             throw new IllegalArgumentException("hmac key is empty");
         }
-        if (keyMaterial == null || keyMaterial.isEmpty()) {
-            throw new IllegalArgumentException("key material is empty");
+        if (data == null || data.length == 0) {
+            throw new IllegalArgumentException("hmac input is empty");
         }
         try {
             Mac mac = Mac.getInstance(HMAC_SHA256);
             mac.init(new SecretKeySpec(key, HMAC_SHA256));
-            byte[] result = mac.doFinal(keyMaterial.getBytes(StandardCharsets.UTF_8));
+            byte[] result = mac.doFinal(data);
             if (result == null || result.length != 32) {
                 throw new IllegalStateException("unexpected hmac length");
             }
@@ -76,5 +86,13 @@ public class CryptoUtils {
         catch (Exception e){
         }
         return null;
+    }
+
+    public static byte[] dptCipherCrypt(byte[] key, long tweak, byte[] in) {
+        return DptCipher.crypt(key, tweak, in);
+    }
+
+    public static void dptCipherCrypt(byte[] key, long tweak, byte[] in, int inOff, byte[] out, int outOff, int len) {
+        DptCipher.crypt(key, tweak, in, inOff, out, outOff, len);
     }
 }

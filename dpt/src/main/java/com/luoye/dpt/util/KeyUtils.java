@@ -23,4 +23,23 @@ public class KeyUtils {
         rc4key[9] = 0x74;
         return rc4key;
     }
+
+    /**
+     * Non-linear bit masking to conceal the master key written into dynamic ELF symbols.
+     * Prevents static key extraction via readelf or symbol dumping.
+     */
+    public static byte[] maskKey(byte[] rawKey) {
+        if (rawKey == null) return null;
+        byte[] masked = new byte[rawKey.length];
+        for (int i = 0; i < rawKey.length; i++) {
+            int m = (0x5A ^ (i * 37)) ^ ((i % 2 == 0) ? 0x9C : 0x3F);
+            m = (((m << 3) & 0xFF) | ((m & 0xFF) >>> 5)) ^ 0x7B;
+            masked[i] = (byte) (rawKey[i] ^ (m & 0xFF));
+        }
+        return masked;
+    }
+
+    public static byte[] unmaskKey(byte[] maskedKey) {
+        return maskKey(maskedKey);
+    }
 }

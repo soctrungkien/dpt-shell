@@ -5,9 +5,11 @@ import com.luoye.dpt.model.DexCode;
 import com.luoye.dpt.model.Instruction;
 import com.luoye.dpt.model.MultiDexCode;
 
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
-import java.io.RandomAccessFile;
+import java.security.SecureRandom;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
@@ -16,6 +18,8 @@ import java.util.Map;
  * @author luoyesiqiu
  */
 public class MultiDexCodeUtils {
+
+    private static final int CODE_ITEM_NONCE_SIZE = 16;
 
     public static MultiDexCode makeMultiDexCode(Map<Integer, List<Instruction>> multiDexInsns) {
         int fileOffset = 0;
@@ -63,44 +67,85 @@ public class MultiDexCodeUtils {
     }
 
     /**
-     * Write MultiDexCode struct to file
+     * Serialize MultiDexCode struct to a little-endian byte array.
      */
-    public static void writeMultiDexCode(String out, MultiDexCode multiDexCode) {
-        if (multiDexCode.getDexCodes()
-                        .isEmpty()) {
-            return;
+    public static byte[] makeMultiDexCodeBytes(MultiDexCode multiDexCode) {
+        if (multiDexCode.getDexCodes() == null || multiDexCode.getDexCodes().isEmpty()) {
+            return null;
         }
-        RandomAccessFile randomAccessFile = null;
-
-        try {
-            randomAccessFile = new RandomAccessFile(out, "rw");
+        try (ByteArrayOutputStream out = new ByteArrayOutputStream()) {
             //Write file version
-            randomAccessFile.write(Endian.makeLittleEndian(multiDexCode.getVersion()));
+            out.write(Endian.makeLittleEndian(multiDexCode.getVersion()));
             //Write dex count
-            randomAccessFile.write(Endian.makeLittleEndian(multiDexCode.getDexCount()));
+            out.write(Endian.makeLittleEndian(multiDexCode.getDexCount()));
 
             //Write to the location of each dex in the file
             for (Integer dexCodesIndex : multiDexCode.getDexCodesIndex()) {
-                randomAccessFile.write(Endian.makeLittleEndian(dexCodesIndex));
+                out.write(Endian.makeLittleEndian(dexCodesIndex));
             }
             //Write data for each dex
             for (DexCode dexCode : multiDexCode.getDexCodes()) {
                 List<Instruction> insns = dexCode.getInsns();
 
                 //The number of functions that are written to a single dex
-                randomAccessFile.write(Endian.makeLittleEndian(dexCode.getMethodCount()));
-                for (int i = 0; i < insns.size(); i++) {
-                    Instruction instruction = insns.get(i);
-                    randomAccessFile.write(Endian.makeLittleEndian(instruction.getMethodIndex()));
-                    randomAccessFile.write(Endian.makeLittleEndian(instruction.getInstructionDataSize()));
-                    randomAccessFile.write(instruction.getInstructionsData());
+                out.write(Endian.makeLittleEndian(dexCode.getMethodCount()));
+                for (Instruction instruction : insns) {
+                    out.write(Endian.makeLittleEndian(instruction.getMethodIndex()));
+                    out.write(Endian.makeLittleEndian(instruction.getInstructionDataSize()));
+                    out.write(instruction.getInstructionsData());
                 }
             }
 
+            return out.toByteArray();
         } catch (IOException e) {
             e.printStackTrace();
-        } finally {
-            IoUtils.close(randomAccessFile);
+            return null;
         }
+    }
+
+    /**
+     * Write MultiDexCode struct to file
+     */
+    public static void writeMultiDexCode(String out, MultiDexCode multiDexCode) {
+        byte[] data = makeMultiDexCodeBytes(multiDexCode);
+        if (data == null) {
+            return;
+        }
+        IoUtils.writeFile(out, data);
+    }
+
+    /**
+     * Encrypt the whole code-item file:
+     *   [16-byte random nonce][DptCipher ciphertext]
+     *
+     * The cipher key is derived per file with HMAC-SHA256(configKey, nonce), so
+     * the file layout (version, dex count, method indexes and sizes) is no
+     * longer exposed in plaintext. Native side derives the same subkey.
+     */
+    public static void writeEncryptedMultiDexCode(String out, MultiDexCode multiDexCode, byte[] key) {
+        byte[] plain = makeMultiDexCodeBytes(multiDexCode);
+        if (plain == null) {
+            return;
+        }
+        if (key == null || key.length == 0) {
+            throw new IllegalArgumentException("code item key is empty");
+        }
+
+        byte[] nonce = new byte[CODE_ITEM_NONCE_SIZE];
+        new SecureRandom().nextBytes(nonce);
+
+        byte[] fileKey = CryptoUtils.hmacSha256(key, nonce);
+        byte[] cipherText = DptCipher.crypt(fileKey, DptCipher.TWEAK_CODE_ITEM, plain);
+        if (cipherText == null || cipherText.length != plain.length) {
+            throw new IllegalStateException("encrypt code item failed");
+        }
+
+        byte[] outData = new byte[nonce.length + cipherText.length];
+        System.arraycopy(nonce, 0, outData, 0, nonce.length);
+        System.arraycopy(cipherText, 0, outData, nonce.length, cipherText.length);
+        IoUtils.writeFile(out, outData);
+
+        Arrays.fill(plain, (byte) 0);
+        Arrays.fill(fileKey, (byte) 0);
     }
 }

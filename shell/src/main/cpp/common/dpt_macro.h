@@ -24,11 +24,17 @@ inline int get_cache_page_size() {
 #define DPT_ENCRYPT SECTION(SECTION_NAME_BITCODE)
 #define DPT_DATA_SECTION SECTION(SECTION_NAME_DATA)
 
-#define DEXES_ZIP_NAME "i11111i111.zip"
-#define CACHE_DIR "code_cache"
+#ifndef DEXES_ZIP_NAME
+#error "DEXES_ZIP_NAME must be defined by the build"
+#endif
+#ifndef SHELL_CONFIG_IN_ZIP
+#error "SHELL_CONFIG_IN_ZIP must be defined by the build"
+#endif
+#ifndef CODE_ITEM_NAME_IN_ZIP
+#error "CODE_ITEM_NAME_IN_ZIP must be defined by the build"
+#endif
 
-#define SHELL_CONFIG_IN_ZIP "assets/d_shell_data_001"
-#define CODE_ITEM_NAME_IN_ZIP "assets/OoooooOooo"
+#define CACHE_DIR "code_cache"
 #define COMBINE_DEX_FILES_NAME_IN_ZIP "classes.dex"
 #define JUNK_CLASS_FULL_NAME "com/luoye/dpt/junkcode/JunkClass"
 

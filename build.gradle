@@ -9,8 +9,20 @@ static def generateHexString() {
     return Long.toHexString(secureRandom.nextLong())
 }
 
-// Persist soName/dptBuildKey across Gradle invocations so dpt.jar and shell SO stay in sync.
-// Stored under the root build/ directory; clean deletes it so the next build regenerates.
+static def generateIdentifier(int minLength) {
+    def secureRandom = new SecureRandom()
+    final String alphabet = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+    int length = minLength + secureRandom.nextInt(minLength)
+    StringBuilder sb = new StringBuilder(length)
+    for (int i = 0; i < length; i++) {
+        sb.append(alphabet.charAt(secureRandom.nextInt(alphabet.length())))
+    }
+    return sb.toString()
+}
+
+// Persist soName/dptBuildKey/random asset names across Gradle invocations so
+// dpt.jar and shell SO stay in sync. Stored under the root build/ directory;
+// clean deletes it so the next build regenerates.
 def dptBuildIdsFile = file("${rootDir}/build/dpt-build-ids.properties")
 def dptBuildIds = new Properties()
 if (dptBuildIdsFile.exists()) {
@@ -18,11 +30,39 @@ if (dptBuildIdsFile.exists()) {
 }
 def resolvedSoName = dptBuildIds.getProperty("soName")
 def resolvedBuildKey = dptBuildIds.getProperty("dptBuildKey")
+def resolvedShellConfigAssetName = dptBuildIds.getProperty("shellConfigAssetName")
+def resolvedDexesZipName = dptBuildIds.getProperty("dexesZipName")
+def resolvedCodeItemAssetName = dptBuildIds.getProperty("codeItemAssetName")
+def resolvedLibsDirName = dptBuildIds.getProperty("libsDirName")
+boolean idsChanged = false
 if (!resolvedSoName || resolvedSoName.isEmpty() || !resolvedBuildKey || resolvedBuildKey.isEmpty()) {
     resolvedSoName = generateHexString()
     resolvedBuildKey = generateHexString()
     dptBuildIds.setProperty("soName", resolvedSoName)
     dptBuildIds.setProperty("dptBuildKey", resolvedBuildKey)
+    idsChanged = true
+}
+if (!resolvedShellConfigAssetName || resolvedShellConfigAssetName.isEmpty()) {
+    resolvedShellConfigAssetName = generateIdentifier(12)
+    dptBuildIds.setProperty("shellConfigAssetName", resolvedShellConfigAssetName)
+    idsChanged = true
+}
+if (!resolvedDexesZipName || resolvedDexesZipName.isEmpty()) {
+    resolvedDexesZipName = generateIdentifier(10) + ".zip"
+    dptBuildIds.setProperty("dexesZipName", resolvedDexesZipName)
+    idsChanged = true
+}
+if (!resolvedCodeItemAssetName || resolvedCodeItemAssetName.isEmpty()) {
+    resolvedCodeItemAssetName = generateIdentifier(12)
+    dptBuildIds.setProperty("codeItemAssetName", resolvedCodeItemAssetName)
+    idsChanged = true
+}
+if (!resolvedLibsDirName || resolvedLibsDirName.isEmpty()) {
+    resolvedLibsDirName = generateIdentifier(12)
+    dptBuildIds.setProperty("libsDirName", resolvedLibsDirName)
+    idsChanged = true
+}
+if (idsChanged) {
     dptBuildIdsFile.parentFile.mkdirs()
     dptBuildIdsFile.withOutputStream { dptBuildIds.store(it, "dpt-shell build ids. Delete to regenerate.") }
 }
@@ -32,6 +72,10 @@ ext {
     fullSoName = "lib${soName}.so"
     shellPackageName = generateHexString()
     dptBuildKey = resolvedBuildKey
+    shellConfigAssetName = resolvedShellConfigAssetName
+    dexesZipName = resolvedDexesZipName
+    codeItemAssetName = resolvedCodeItemAssetName
+    libsDirName = resolvedLibsDirName
 
     // Android SDK versions
     compileSdkVersion = 36

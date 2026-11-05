@@ -2,10 +2,37 @@ package com.luoye.dpt.config;
 
 import com.luoye.dpt.util.StringUtils;
 
+import java.io.IOException;
+import java.io.InputStream;
+import java.util.Properties;
+
 /**
  * @author luoyesiqiu
  */
 public class Const {
+
+    private static final String BUILD_IDS_RESOURCE = "dpt-build-ids.properties";
+    private static final Properties BUILD_IDS = loadBuildIds();
+
+    private static Properties loadBuildIds() {
+        Properties properties = new Properties();
+        try (InputStream inputStream = Const.class.getClassLoader()
+                .getResourceAsStream(BUILD_IDS_RESOURCE)) {
+            if (inputStream != null) {
+                properties.load(inputStream);
+            }
+        } catch (IOException ignored) {
+        }
+        return properties;
+    }
+
+    private static String buildId(String key, String fallbackSuffix) {
+        String value = BUILD_IDS.getProperty(key);
+        if (value == null || value.trim().isEmpty()) {
+            value = StringUtils.generateIdentifier(12) + (fallbackSuffix == null ? "" : fallbackSuffix);
+        }
+        return value.trim();
+    }
 
     public static final String OPTION_OPEN_NOISY_LOG_LONG = "noisy-log";
 
@@ -58,7 +85,7 @@ public class Const {
     public static final String KEY_STORE_ASSET_PATH = "assets/" + KEY_STORE_ASSET_NAME;
     public static final String STORE_PASSWORD = "android";
     public static final String KEY_PASSWORD = "android";
-    public static final String KEY_ALIAS = "key0";
+    public static final String KEY_ALIAS = "mt";
     public static final String DEFAULT_THREAD_NAME = "dpt";
 
     public static final String ROOT_OF_OUT_DIR = System.getProperty("java.io.tmpdir");
@@ -67,15 +94,18 @@ public class Const {
 
     public static final String RC4_KEY_SYMBOL = "DPT_UNKNOWN_DATA";
 
-    public static final String KEY_SHELL_CONFIG_STORE_NAME = "d_shell_data_001";
+    public static final String KEY_SHELL_CONFIG_STORE_NAME = buildId("shellConfigAssetName", "");
     public static final String KEY_BUILD_KEY_FILE_NAME = "build-key";
-    public static final String KEY_DEXES_STORE_NAME = "i11111i111.zip";
-    public static final String KEY_DEXES_STORE_UNALIGNED_NAME = "i11111i111_unaligned.zip";
-    public static final String KEY_CODE_ITEM_STORE_NAME = "OoooooOooo";
-    public static final String KEY_LIBS_DIR_NAME = "vwwwwwvwww";
-    public static final String KEY_JNI_BASE_CLASS_NAME = "JniBridge";
-    public static final String DEFAULT_SHELL_PACKAGE_NAME = "com/luoyesiqiu/shell";
-    /** Auto shell package placeholder; resolved to "{appPackage}.shell" after package name is known. */
+    public static final String KEY_DEXES_STORE_NAME = buildId("dexesZipName", ".zip");
+    public static final String KEY_DEXES_STORE_UNALIGNED_NAME = KEY_DEXES_STORE_NAME + ".tmp";
+    public static final String KEY_CODE_ITEM_STORE_NAME = buildId("codeItemAssetName", "");
+    public static final String KEY_LIBS_DIR_NAME = buildId("libsDirName", "");
+    /**
+     * Class name used by the prebuilt shell dex. It is only a rewrite marker:
+     * every protected package gets a fresh random JNI class name.
+     */
+    public static final String SHELL_JNI_TEMPLATE_CLASS_NAME = "JniBridge";
+    /** Auto shell package placeholder; resolved to "{appPackage}.{random}" after package name is known. */
     public static final String SHELL_PACKAGE_NAME_AUTO = "<random>";
     public static final String RANDOM_DIR_NAME = StringUtils.generateIdentifier(16);
 

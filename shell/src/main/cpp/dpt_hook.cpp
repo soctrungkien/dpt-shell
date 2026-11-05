@@ -14,6 +14,7 @@
 #include "dpt_hook.h"
 #include "dpt_risk.h"
 #include "dpt_util.h"
+#include "dpt_crypto.h"
 #include "bytehook.h"
 
 using namespace dpt;
@@ -164,15 +165,10 @@ void patchMethod(uint8_t *begin,
 
             const uint8_t *enc = codeItem->getInsns();
             uint32_t sz = codeItem->getInsnsSize();
-
-            uint8_t rc4_key[sizeof(g_shell_config.aes_key) + sizeof(uint32_t)];
-            memcpy(rc4_key, g_shell_config.aes_key, sizeof(g_shell_config.aes_key));
             uint32_t methodIndex = codeItem->getMethodIdx();
-            memcpy(rc4_key + sizeof(g_shell_config.aes_key), &methodIndex, sizeof(methodIndex));
 
-            struct rc4_state state;
-            rc4_init(&state, rc4_key, static_cast<int>(sizeof(rc4_key)));
-            rc4_crypt(&state, enc, realInsnsPtr, static_cast<int>(sz));
+            uint64_t tweak = dpt_cipher_build_insns_tweak(methodIndex, sz);
+            dpt_cipher_crypt(g_shell_config.aes_key, sizeof(g_shell_config.aes_key), tweak, enc, realInsnsPtr, sz);
         }
         else{
             NLOG("cannot find  methodId: %d in codeitem map, dex index: %d(%s)", methodIdx, dexIndex, location);

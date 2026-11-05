@@ -6,6 +6,7 @@
 #include "dpt_crypto.h"
 #include "external/json/json.hpp"
 
+#include <cstring>
 #include <memory>
 
 using namespace dpt;
@@ -15,7 +16,7 @@ static pthread_mutex_t g_write_dexes_mutex = PTHREAD_MUTEX_INITIALIZER;
 static jobject g_realApplicationInstance = nullptr;
 static jclass g_realApplicationClass = nullptr;
 
-std::optional<std::tuple<uint8_t *,size_t>> g_codeItemFileData;
+std::optional<std::vector<uint8_t>> g_codeItemFileData;
 std::unordered_map<int,std::vector<data::CodeItem *> *> dexMap;
 
 DPT_DATA_SECTION uint8_t DATA_SECTION_BITCODE[] = ".bitcode";
@@ -231,11 +232,11 @@ void decrypt_section(const char* section_name, int temp_prot, int target_prot) {
     }
 
     u_char *bitcode = (u_char *)malloc(size);
-    struct rc4_state dec_state;
-    rc4_init(&dec_state, reinterpret_cast<const u_char *>(DPT_UNKNOWN_DATA), 16);
-    rc4_crypt(&dec_state, reinterpret_cast<const u_char *>(target),
-              reinterpret_cast<u_char *>(bitcode),
-              size);
+    auto real_so_key = get_unmasked_so_key();
+    dpt_cipher_crypt(real_so_key.data(), real_so_key.size(), DPT_CIPHER_TWEAK_BITCODE,
+                     reinterpret_cast<const uint8_t *>(target),
+                     reinterpret_cast<uint8_t *>(bitcode),
+                     size);
 
     memcpy(target,bitcode,size);
     DPT_FREE(bitcode);
@@ -421,7 +422,32 @@ DPT_ENCRYPT void init_app(JNIEnv *env, jclass __unused) {
     if(!g_codeItemFileData.has_value()) {
         auto entry_data = read_zip_file_entry(package_addr, package_size, AY_OBFUSCATE(CODE_ITEM_NAME_IN_ZIP));
         if(entry_data.has_value()) {
-            g_codeItemFileData = std::move(entry_data);
+            auto [raw_data, raw_size] = entry_data.value();
+            // Layout: [16-byte random nonce][DptCipher ciphertext].
+            // Per-file subkey = HMAC-SHA256(config aes key, nonce).
+            if(raw_size > 16) {
+                std::vector<uint8_t> file_key = hmac_sha256(
+                        g_shell_config.aes_key,
+                        sizeof(g_shell_config.aes_key),
+                        raw_data,
+                        16);
+                if(file_key.size() == 32) {
+                    size_t cipher_len = raw_size - 16;
+                    std::vector<uint8_t> decrypted(cipher_len);
+                    dpt_cipher_crypt(file_key.data(), file_key.size(),
+                                     DPT_CIPHER_TWEAK_CODE_ITEM,
+                                     raw_data + 16, decrypted.data(), cipher_len);
+                    g_codeItemFileData = std::move(decrypted);
+                    memset(file_key.data(), 0, file_key.size());
+                }
+                else {
+                    DLOGE("derive code item key failed");
+                }
+            }
+            else {
+                DLOGE("invalid code item data size: %zu", raw_size);
+            }
+            delete[] raw_data;
         }
         printTime("read codeitem data took =" , start);
 
@@ -429,8 +455,15 @@ DPT_ENCRYPT void init_app(JNIEnv *env, jclass __unused) {
     else {
         DLOGD("no need read codeitem from zip");
     }
-    auto [entry_data, entry_size] = g_codeItemFileData.value();
-    readCodeItem((uint8_t *)entry_data, entry_size);
+
+    if(!g_codeItemFileData.has_value()) {
+        DLOGE("code item data is unavailable");
+        unload_package(package_addr, package_size);
+        return;
+    }
+
+    std::vector<uint8_t> &codeItemData = g_codeItemFileData.value();
+    readCodeItem(codeItemData.data(), codeItemData.size());
 
     pthread_mutex_lock(&g_write_dexes_mutex);
     extractDexesInNeeded(env, package_addr, package_size);
@@ -523,8 +556,9 @@ DPT_ENCRYPT void read_shell_config(JNIEnv *env) {
             std::string key_material = packageName + keySep + buildKey;
             DLOGD("key material for config key: %s", key_material.c_str());
 
-            auto aes_key = hmac_sha256(DPT_UNKNOWN_DATA,
-                                       16,
+            auto real_so_key = get_unmasked_so_key();
+            auto aes_key = hmac_sha256(real_so_key.data(),
+                                       real_so_key.size(),
                                        reinterpret_cast<const uint8_t *>(key_material.data()),
                                        key_material.size());
             if (aes_key.size() != 32) {
@@ -537,7 +571,7 @@ DPT_ENCRYPT void read_shell_config(JNIEnv *env) {
             std::vector<uint8_t> indata(entry_data, entry_data + entry_size);
 
             uint8_t iv[16] = {0};
-            memcpy(iv, DPT_UNKNOWN_DATA, 16);
+            memcpy(iv, real_so_key.data(), 16);
             iv[3] = 0x2f;
             iv[9] = 0x76;
             auto decrypted_data = aes_cbc_decrypt(aes_key.data(), 256, iv, indata.data(), entry_size);
