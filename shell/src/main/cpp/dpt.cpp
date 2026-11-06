@@ -631,7 +631,12 @@ DPT_ENCRYPT void read_shell_config(JNIEnv *env) {
         }
     }
     else {
-        DLOGE("shell config entry not found in package: %s", AY_OBFUSCATE(SHELL_CONFIG_IN_ZIP));
+        // AY_OBFUSCATE returns a non-trivial object; it must be converted to a
+        // pointer before being passed to the variadic snprintf inside DLOGE.
+        // maybe_unused keeps -Werror quiet in release builds, where DLOGE is
+        // compiled out entirely.
+        [[maybe_unused]] const char *configEntryName = AY_OBFUSCATE(SHELL_CONFIG_IN_ZIP);
+        DLOGE("shell config entry not found in package: %s", configEntryName);
     }
 
     // Do not leave a pending Java exception behind: JNI_OnLoad calls FindClass /

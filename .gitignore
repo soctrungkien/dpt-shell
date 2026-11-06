@@ -16,4 +16,6 @@ local.properties
 /output
 /shell-files
 /executable
+# Native libs copied into the shell assets by shell/build.gradle at build time.
+/shell/src/main/assets/*/
 /.idea
