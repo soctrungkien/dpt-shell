@@ -39,7 +39,12 @@ android {
         }
 
         buildConfigField "String", "SO_NAME", "\"${fullSoName}\""
-        buildConfigField "String", "ZIP_LIB_DIR", "\"${libsDirName}\""
+        // Must use the root extra property: Gradle's base plugin exposes a
+        // convention property named "libsDirName" (default "libs") that shadows
+        // it inside subprojects. dpt.jar uses the persisted random value, so a
+        // plain "${libsDirName}" here would make the shell look for the SOs in
+        // assets/libs while dpt.jar packages them under assets/<random>.
+        buildConfigField "String", "ZIP_LIB_DIR", "\"${rootProject.ext.libsDirName}\""
     }
 
     buildTypes {
@@ -129,16 +134,24 @@ def afterAssembleCopy(Project project, Map archMap, boolean debug) {
     buildKeyFile.text = "${dptBuildKey}\n"
     println("[" + project.name + "] wrote build key -> " + buildKeyFile.absolutePath)
 
-    // Re-persist ids after assemble so a mid-build clean cannot leave them missing.
-    def idsFile = new File(project.rootDir, "build" + File.separator + "dpt-build-ids.properties")
-    idsFile.parentFile.mkdirs()
-    idsFile.text = "# dpt-shell build ids\n" +
+    def idsContent = "# dpt-shell build ids\n" +
+            "schemaVersion=2\n" +
             "soName=${soName}\n" +
             "dptBuildKey=${dptBuildKey}\n" +
             "shellConfigAssetName=${shellConfigAssetName}\n" +
             "dexesZipName=${dexesZipName}\n" +
             "codeItemAssetName=${codeItemAssetName}\n" +
-            "libsDirName=${libsDirName}\n"
+            "libsDirName=${rootProject.ext.libsDirName}\n"
+
+    // Re-persist ids after assemble so a mid-build clean cannot leave them missing.
+    def idsFile = new File(project.rootDir, "build" + File.separator + "dpt-build-ids.properties")
+    idsFile.parentFile.mkdirs()
+    idsFile.text = idsContent
+
+    // Single source of truth for dpt.jar at runtime: keep the ids next to the SOs/dex
+    // so a stale jar still protects with the names compiled into this native library.
+    def shellIdsFile = new File(targetDir, "dpt-build-ids.properties")
+    shellIdsFile.text = idsContent
 }
 
 def afterNativeBuildCopy(Project project, Map archMap, boolean debug) {
@@ -161,7 +174,7 @@ def afterNativeBuildCopy(Project project, Map archMap, boolean debug) {
             + "src" + File.separator
             + "main" + File.separator
             + "assets" + File.separator
-            + libsDirName)
+            + rootProject.ext.libsDirName)
 
     println("[" + project.name + "] " + sourceDir.absolutePath + " -> " + targetDir.absolutePath)
 
@@ -207,35 +220,38 @@ afterEvaluate { Project project ->
         return
     }
 
-    def firstTaskName = list.get(0)
+    // Gradle may report task names with a leading ':' (e.g. ":shell:assembleRelease",
+    // which is what Android Studio passes). Normalize before matching, otherwise the
+    // copy tasks below never run and executable/shell-files keeps a stale SO/dex.
+    def requestedTasks = list.collect { it.startsWith(":") ? it.substring(1) : it }
 
-    println("first task: " + firstTaskName)
+    println("requested tasks: " + requestedTasks)
 
-    def buildTask = assembleTask
-    def nativeBuildTask = nativeReleaseBuildTask
-    def debug = false
-    if(firstTaskName == "shell:assemble" || firstTaskName == "assemble") {
-        buildTask = assembleTask
-        nativeBuildTask = nativeReleaseBuildTask
-        debug = false
+    def wantsDebug = requestedTasks.any {
+        it == "assembleDebug" || it == "shell:assembleDebug"
     }
-    else if(firstTaskName == "shell:assembleRelease" || firstTaskName == "assembleRelease") {
-        buildTask = assembleReleaseTask
-        nativeBuildTask = nativeReleaseBuildTask
-        debug = false
-    }
-    else if(firstTaskName == "shell:assembleDebug" || firstTaskName == "assembleDebug") {
-        buildTask = assembleDebugTask
-        nativeBuildTask = nativeDebugBuildTask
-        debug = true
+    def wantsRelease = requestedTasks.any {
+        it == "assembleRelease" || it == "shell:assembleRelease" ||
+                it == "assemble" || it == "shell:assemble" ||
+                it == "build" || it == "shell:build"
     }
 
-    buildTask.doLast {
-        afterAssembleCopy(project, archMap, debug)
+    if(wantsDebug) {
+        assembleDebugTask.doLast {
+            afterAssembleCopy(project, archMap, true)
+        }
+        nativeDebugBuildTask.doLast {
+            afterNativeBuildCopy(project, archMap, true)
+        }
     }
 
-    nativeBuildTask.doLast {
-        afterNativeBuildCopy(project, archMap, debug)
+    if(wantsRelease) {
+        assembleReleaseTask.doLast {
+            afterAssembleCopy(project, archMap, false)
+        }
+        nativeReleaseBuildTask.doLast {
+            afterNativeBuildCopy(project, archMap, false)
+        }
     }
 
 }

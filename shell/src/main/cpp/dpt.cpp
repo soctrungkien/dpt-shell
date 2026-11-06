@@ -399,14 +399,28 @@ DPT_ENCRYPT jobject replaceApplicationOnLoadedApk(JNIEnv *env, jclass __unused, 
 
 
 DPT_ENCRYPT static bool registerNativeMethods(JNIEnv *env) {
+    if (g_shell_config.jni_class_name.empty()) {
+        DLOGF("jni class name is empty: shell config was not read");
+        return JNI_FALSE;
+    }
     jclass JniBridgeClass = env->FindClass(g_shell_config.jni_class_name.c_str());
     if(JniBridgeClass == nullptr) {
+        if (env->ExceptionCheck()) {
+            env->ExceptionDescribe();
+            env->ExceptionClear();
+        }
         DLOGF("cannot find class: %s!", g_shell_config.jni_class_name.c_str());
+        return JNI_FALSE;
     }
     if (env->RegisterNatives(JniBridgeClass, gMethods, sizeof(gMethods) / sizeof(gMethods[0])) ==
         0) {
         return JNI_TRUE;
     }
+    if (env->ExceptionCheck()) {
+        env->ExceptionDescribe();
+        env->ExceptionClear();
+    }
+    DLOGF("RegisterNatives failed for class: %s", g_shell_config.jni_class_name.c_str());
     return JNI_FALSE;
 }
 
@@ -615,6 +629,16 @@ DPT_ENCRYPT void read_shell_config(JNIEnv *env) {
                 DLOGE("parse shell config failed: %s", e.what());
             }
         }
+    }
+    else {
+        DLOGE("shell config entry not found in package: %s", AY_OBFUSCATE(SHELL_CONFIG_IN_ZIP));
+    }
+
+    // Do not leave a pending Java exception behind: JNI_OnLoad calls FindClass /
+    // RegisterNatives right after this, and a pending exception would make them fail.
+    if (env->ExceptionCheck()) {
+        env->ExceptionDescribe();
+        env->ExceptionClear();
     }
 
     unload_package(package_addr, package_size);

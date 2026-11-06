@@ -1145,6 +1145,19 @@ public abstract class AndroidPackage {
             throw new FileNotFoundException(msg);
         }
 
+        // The shell build writes this file next to the SO/dex it produced. Without it we
+        // cannot know which random asset names the native library was compiled with, and
+        // protecting anyway would produce an APK whose shell fails to register its JNI
+        // methods at runtime (UnsatisfiedLinkError on ia()).
+        if(!Const.isBuildIdsFromShellFiles()) {
+            String msg = "shell-files is stale or incomplete: missing "
+                    + new File(shellFiles, "dpt-build-ids.properties")
+                    + ". Rebuild the shell module (gradlew :shell:assembleRelease) "
+                    + "and then dpt.jar so both sides use the same randomized names.";
+            LogUtils.error(msg);
+            throw new FileNotFoundException(msg);
+        }
+
         File willProtectFile = new File(getFilePath());
 
         if(!willProtectFile.exists()){

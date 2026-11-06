@@ -1,7 +1,10 @@
 package com.luoye.dpt.config;
 
+import com.luoye.dpt.util.FileUtils;
 import com.luoye.dpt.util.StringUtils;
 
+import java.io.File;
+import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.Properties;
@@ -12,10 +15,42 @@ import java.util.Properties;
 public class Const {
 
     private static final String BUILD_IDS_RESOURCE = "dpt-build-ids.properties";
+    private static final String BUILD_IDS_FILE_NAME = "dpt-build-ids.properties";
+    private static final String SHELL_FILES_DIR_NAME = "shell-files";
+
+    // Declared before BUILD_IDS: loadBuildIds() sets it during static init.
+    private static boolean buildIdsFromShellFiles = false;
     private static final Properties BUILD_IDS = loadBuildIds();
 
+    /**
+     * Prefer the ids file that ships next to the shell SO/dex. That file is written by the
+     * shell build itself, so even an older dpt.jar uses exactly the names compiled into the
+     * native library. The jar-embedded copy is only a fallback (e.g. unit tests).
+     */
     private static Properties loadBuildIds() {
         Properties properties = new Properties();
+        try {
+            String executablePath = FileUtils.getExecutablePath();
+            if (executablePath != null && !executablePath.isEmpty()) {
+                File shellIdsFile = new File(executablePath,
+                        SHELL_FILES_DIR_NAME + File.separator + BUILD_IDS_FILE_NAME);
+                if (shellIdsFile.isFile()) {
+                    try (InputStream inputStream = new FileInputStream(shellIdsFile)) {
+                        properties.load(inputStream);
+                    }
+                    if (!isBlank(properties.getProperty("shellConfigAssetName"))
+                            && !isBlank(properties.getProperty("dexesZipName"))
+                            && !isBlank(properties.getProperty("codeItemAssetName"))
+                            && !isBlank(properties.getProperty("libsDirName"))) {
+                        buildIdsFromShellFiles = true;
+                        return properties;
+                    }
+                    // Incomplete file: fall through to the jar copy.
+                    properties.clear();
+                }
+            }
+        } catch (Exception ignored) {
+        }
         try (InputStream inputStream = Const.class.getClassLoader()
                 .getResourceAsStream(BUILD_IDS_RESOURCE)) {
             if (inputStream != null) {
@@ -24,6 +59,14 @@ public class Const {
         } catch (IOException ignored) {
         }
         return properties;
+    }
+
+    private static boolean isBlank(String value) {
+        return value == null || value.trim().isEmpty();
+    }
+
+    public static boolean isBuildIdsFromShellFiles() {
+        return buildIdsFromShellFiles;
     }
 
     private static String buildId(String key, String fallbackSuffix) {

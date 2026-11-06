@@ -32,6 +32,7 @@ public class JniBridge {
             String abiDirName = EnvUtils.getAbiDirName();
             File shellLibsFile = new File(workspacePath + File.separator + Global.LIB_DIR + File.separator + abiDirName);
             File[] files = shellLibsFile.listFiles();
+            boolean loaded = false;
             if(files != null) {
                 for(File shellLibPath : files) {
                     String fullLibPath = shellLibPath.getAbsolutePath();
@@ -40,12 +41,21 @@ public class JniBridge {
                         if(fullLibPath.endsWith(libSuffix)) {
                             Log.d(TAG, "loadShellLibs: " + fullLibPath);
                             System.load(fullLibPath);
+                            loaded = true;
                         }
                     }
                 }
             }
+            if(!loaded) {
+                // Log.* is stripped by R8 (-assumenosideeffects), so use stderr to keep
+                // this visible in logcat when the shell library cannot be found.
+                System.err.println(TAG + ": shell lib not found: "
+                        + new File(shellLibsFile, Global.SHELL_SO_NAME).getAbsolutePath());
+            }
         }
         catch (Throwable e){
+            // Keep the cause visible in logcat: Log.w is removed by R8 in release builds.
+            e.printStackTrace();
             Log.w(TAG,e);
         }
     }
